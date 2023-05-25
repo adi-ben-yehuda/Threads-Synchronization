@@ -9,23 +9,7 @@
 #include <time.h>
 #include <semaphore.h>
 
-// #include <sys/stat.h>
-// #include <fcntl.h>
-// #include <ctype.h>
-// #include <dirent.h>
-// #include <sys/wait.h>
-// #include <signal.h>
-
 #define MAX_LINE_LENGTH 100 // Maximum length of a line
-
-// typedef struct
-// {
-//     int producersID;
-//     char *type;
-//     int numOfsports;
-//     int numOfNews;
-//     int numOfweather;
-// } Article;
 
 typedef struct
 {
@@ -39,12 +23,18 @@ typedef struct
 {
     int size;
     char **buffer;         // Buffer array to store articles
-    int front;             // first element in the queue.
-    int rear;              // last element in the queue.
+    int front;             // First element in the queue.
+    int rear;              // Last element in the queue.
     pthread_mutex_t mutex; // Mutex for buffer access
     sem_t empty_count;     // Semaphore for empty slots in the buffer
     sem_t full_count;      // Semaphore for filled slots in the buffer
 } BoundedBuffer;
+
+// Global variables
+BoundedBuffer *queuesOfArticals;
+BoundedBuffer sportsQueue;
+BoundedBuffer newsQueue;
+BoundedBuffer weatherQueue;
 
 // Constructor: create a new bounded buffer with size places to store objects.
 char *initBoundedBuffer(BoundedBuffer *b, int size)
@@ -98,7 +88,7 @@ char *removeArticle(BoundedBuffer *b)
     // Check whether the queue is already empty
     if (b->front == -1 || b->front > b->rear)
     {
-        a="-1";
+        a = "-1";
     }
     else
     {
@@ -172,32 +162,26 @@ void *thread_function_Producer(void *arg)
 // Define a structure to hold the arguments
 typedef struct
 {
-    BoundedBuffer *queuesOfArticals;
-    BoundedBuffer * sportsQueue;
-    BoundedBuffer * newsQueue;
-    BoundedBuffer * weatherQueue;
-    int numProducers;
+   int numProducers;
 } DispatcherThreadArgs;
 
 void *thread_function_Dispatcher(void *arg)
 {
-    DispatcherThreadArgs *threadArgs = (DispatcherThreadArgs *)arg;
-    BoundedBuffer *queuesOfArticals = threadArgs->queuesOfArticals;
-    BoundedBuffer * sportsQueue = threadArgs->sportsQueue;
-    BoundedBuffer * newsQueue = threadArgs->newsQueue;
-    BoundedBuffer * weatherQueue = threadArgs->weatherQueue;
+    DispatcherThreadArgs * args = (DispatcherThreadArgs*)arg;
+    int numProducers = args->numProducers;
+    int count = 0;
 
-    int count = 0, numProducers = threadArgs->numProducers;
-     printf("1");
+    printf("START");
+
     // When all the queues are empty, exit from the loop
     while (count != numProducers)
     {
-        printf("1");
         // Get one article from each queue each time
         for (int i = 0; i < numProducers; i++)
         {
             printf("2");
-            if (queuesOfArticals[i].size == 0) {
+            if (queuesOfArticals[i].size == 0)
+            {
                 continue;
             }
 
@@ -208,23 +192,23 @@ void *thread_function_Dispatcher(void *arg)
             if (strstr(article, "SPORTS") != NULL)
             {
                 // Add the article to the queue
-                insertArticle(sportsQueue, article);
+                insertArticle(&sportsQueue, article);
                 printf("%s Inserted to the sportqueue", article);
             }
             else if (strstr(article, "NEWS") != NULL)
             {
-                insertArticle(newsQueue, article);
+                insertArticle(&newsQueue, article);
                 printf("%s Inserted to the newsqueue", article);
-
             }
             else if (strstr(article, "WEATHER") != NULL)
             {
-                insertArticle(weatherQueue, article);
+                insertArticle(&weatherQueue, article);
                 printf("%s Inserted to the weatherqueue", article);
-
-            } else if (strstr(article, "DONE") != NULL) {
+            }
+            else if (strstr(article, "DONE") != NULL)
+            {
                 // This means the producer has finished inserting new articles
-                count++; 
+                count++;
 
                 // Remove the queue
                 free(queuesOfArticals[i].buffer);
@@ -314,7 +298,7 @@ int main(int argc, char *argv[])
     }
 
     // Create an array of queue in the size of producers number with malloc
-    BoundedBuffer *queuesOfArticals = (BoundedBuffer *)calloc(numProducers, sizeof(BoundedBuffer));
+    queuesOfArticals = (BoundedBuffer *)calloc(numProducers, sizeof(BoundedBuffer));
 
     for (int i = 0; i < numProducers; i++)
     {
@@ -337,23 +321,15 @@ int main(int argc, char *argv[])
         queuesOfArticals[i] = queueOfArticals;
     }
 
-    pthread_t thread_producer_id;
-
     // Create 3 queues for each type
-    BoundedBuffer sportsQueue;
     initBoundedBuffer(&sportsQueue, CoEditorSize);
-    BoundedBuffer newsQueue;
     initBoundedBuffer(&newsQueue, CoEditorSize);
-    BoundedBuffer weatherQueue;
     initBoundedBuffer(&weatherQueue, CoEditorSize);
 
+    pthread_t thread_producer_id;
     DispatcherThreadArgs dispatcherThreadArgs;
-    dispatcherThreadArgs.queuesOfArticals = queuesOfArticals;
-    dispatcherThreadArgs.sportsQueue = &sportsQueue;
-    dispatcherThreadArgs.newsQueue = &newsQueue;
-    dispatcherThreadArgs.weatherQueue = &weatherQueue;
     dispatcherThreadArgs.numProducers = numProducers;
-    
+
     int result = pthread_create(&thread_producer_id, NULL, thread_function_Dispatcher, (void *)&dispatcherThreadArgs);
     if (result != 0)
     {
