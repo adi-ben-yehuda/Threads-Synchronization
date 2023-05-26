@@ -223,6 +223,27 @@ void *thread_function_Dispatcher(void *arg)
     return NULL;
 }
 
+// Define a structure to hold the arguments
+typedef struct
+{
+    BoundedBuffer *queue;
+} CoEditorThreadArgs;
+
+void *thread_function_Co_Editor(void *arg)
+{
+    CoEditorThreadArgs *args = (CoEditorThreadArgs *)arg;
+    BoundedBuffer *queue = args->queue;
+
+    char *article = removeArticle(&queue);
+
+    while (strstr(article, "DONE") == NULL)
+    {
+        
+    }
+    
+
+}
+
 void *thread_function_Screen_manager(void *arg)
 {
     // Thread code goes here
@@ -325,8 +346,6 @@ int main(int argc, char *argv[])
             printf("pthread_create failed. Error code: %d\n", result);
             exit(1);
         }
-
-       // pthread_join(thread_producer_id, NULL);
     }
 
     // Create 3 queues for each type
@@ -334,16 +353,28 @@ int main(int argc, char *argv[])
     initBoundedBuffer(&newsQueue, CoEditorSize);
     initBoundedBuffer(&weatherQueue, CoEditorSize);
 
-    pthread_t thread_producer_id;
+    pthread_t thread_dispatcher_id;
     DispatcherThreadArgs dispatcherThreadArgs;
     dispatcherThreadArgs.numProducers = numProducers;
 
-    int result = pthread_create(&thread_producer_id, NULL, thread_function_Dispatcher, (void *)&dispatcherThreadArgs);
+    int result = pthread_create(&thread_dispatcher_id, NULL, thread_function_Dispatcher, (void *)&dispatcherThreadArgs);
     if (result != 0)
     {
         printf("pthread_create failed. Error code: %d\n", result);
         exit(1);
     }
+
+    pthread_t thread_sport_id;
+    CoEditorThreadArgs coEditorThreadArgs;
+    coEditorThreadArgs.queue = &sportsQueue;
+
+    int result = pthread_create(&thread_sport_id, NULL, thread_function_Co_Editor, (void *)&coEditorThreadArgs);
+    if (result != 0)
+    {
+        printf("pthread_create failed. Error code: %d\n", result);
+        exit(1);
+    }
+    
 
     free(producers);
     free(queuesOfArticals);
