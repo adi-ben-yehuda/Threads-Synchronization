@@ -80,28 +80,26 @@ void insertArticle(BoundedBuffer *b, char *article)
 // Remove the first object from the bounded buffer and return it to the user
 char *removeArticle(BoundedBuffer *b)
 {
-    sem_wait(&b->empty_count);     // Decrement empty_count semaphore
     pthread_mutex_lock(&b->mutex); // Acquire the mutex lock
 
     char *a;
 
     // Check whether the queue is already empty
-    if (b->front == -1 || b->front > b->rear)
+    if (b->rear == -1)
     {
-        a = "-1";
+        a = NULL;
     }
     else
     {
         a = b->buffer[0];
-        free(b->buffer[0]);
-        for (int i = 1; i < b->rear; i++)
+        for (int i = 1; i <= b->rear; i++)
         {
             b->buffer[i - 1] = b->buffer[i];
         }
         b->rear--;
     }
     pthread_mutex_unlock(&b->mutex); // Release the mutex lock
-    sem_post(&b->full_count);        // Increment full_count semaphore
+    sem_post(&b->empty_count);       // Increment empty_count semaphore
 
     return a;
 }
@@ -162,16 +160,14 @@ void *thread_function_Producer(void *arg)
 // Define a structure to hold the arguments
 typedef struct
 {
-   int numProducers;
+    int numProducers;
 } DispatcherThreadArgs;
 
 void *thread_function_Dispatcher(void *arg)
 {
-    DispatcherThreadArgs * args = (DispatcherThreadArgs*)arg;
+    DispatcherThreadArgs *args = (DispatcherThreadArgs *)arg;
     int numProducers = args->numProducers;
     int count = 0;
-
-    printf("START");
 
     // When all the queues are empty, exit from the loop
     while (count != numProducers)
@@ -179,31 +175,31 @@ void *thread_function_Dispatcher(void *arg)
         // Get one article from each queue each time
         for (int i = 0; i < numProducers; i++)
         {
-            printf("2");
             if (queuesOfArticals[i].size == 0)
             {
                 continue;
             }
 
             char *article = removeArticle(&queuesOfArticals[i]);
-            printf("%s", article);
+            // Check if the queue was empty
+            if (article == NULL)
+            {
+                continue;
+            }
 
             // Check if word is present in the string
             if (strstr(article, "SPORTS") != NULL)
             {
                 // Add the article to the queue
                 insertArticle(&sportsQueue, article);
-                printf("%s Inserted to the sportqueue", article);
             }
             else if (strstr(article, "NEWS") != NULL)
             {
                 insertArticle(&newsQueue, article);
-                printf("%s Inserted to the newsqueue", article);
             }
             else if (strstr(article, "WEATHER") != NULL)
             {
                 insertArticle(&weatherQueue, article);
-                printf("%s Inserted to the weatherqueue", article);
             }
             else if (strstr(article, "DONE") != NULL)
             {
@@ -213,9 +209,16 @@ void *thread_function_Dispatcher(void *arg)
                 // Remove the queue
                 free(queuesOfArticals[i].buffer);
                 queuesOfArticals[i].size = 0;
+
+                // Remove the DONE article from the queue
+                removeArticle(&queuesOfArticals[i]);
             }
         }
     }
+
+    insertArticle(&sportsQueue, "DONE");
+    insertArticle(&newsQueue, "DONE");
+    insertArticle(&weatherQueue, "DONE");
 
     return NULL;
 }
@@ -299,17 +302,22 @@ int main(int argc, char *argv[])
 
     // Create an array of queue in the size of producers number with malloc
     queuesOfArticals = (BoundedBuffer *)calloc(numProducers, sizeof(BoundedBuffer));
+    if (queuesOfArticals == NULL)
+    {
+        fprintf(stderr, "Failed to allocate memory for queuesOfArticals\n");
+        return 1;
+    }
 
     for (int i = 0; i < numProducers; i++)
     {
         pthread_t thread_producer_id;
 
-        BoundedBuffer queueOfArticals;
-        initBoundedBuffer(&queueOfArticals, producers[i].queueSize);
+        // BoundedBuffer queueOfArticals;
+        initBoundedBuffer(&(queuesOfArticals[i]), producers[i].queueSize + 1);
 
         ProducerThreadArgs args;
         args.producer = producers[i];
-        args.queue = &queueOfArticals;
+        args.queue = &(queuesOfArticals[i]);
 
         int result = pthread_create(&thread_producer_id, NULL, thread_function_Producer, (void *)&args);
         if (result != 0)
@@ -318,7 +326,7 @@ int main(int argc, char *argv[])
             exit(1);
         }
 
-        queuesOfArticals[i] = queueOfArticals;
+       // pthread_join(thread_producer_id, NULL);
     }
 
     // Create 3 queues for each type
