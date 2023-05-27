@@ -31,7 +31,7 @@ typedef struct
 } BoundedBuffer;
 
 // Constructor: create a new bounded buffer with size places to store objects.
-char *initBoundedBuffer(BoundedBuffer *b, int size)
+void initBoundedBuffer(BoundedBuffer *b, int size)
 {
     b->size = size;
     b->front = -1;
@@ -40,7 +40,6 @@ char *initBoundedBuffer(BoundedBuffer *b, int size)
     if (b->buffer == NULL)
     {
         perror("Memory allocation failed.\n");
-        return NULL;
     }
     pthread_mutex_init(&b->mutex, NULL);
     sem_init(&b->empty_count, 0, size); // Initialize empty_count semaphore to size
@@ -53,18 +52,27 @@ void insertToBoundedBuffer(BoundedBuffer *b, char *article)
     sem_wait(&b->empty_count);     // Decrement empty_count semaphore
     pthread_mutex_lock(&b->mutex); // Acquire the mutex lock
 
-    // Check whether the queue is already full
-    if (b->rear == b->size - 1)
-        printf("Overflow \n");
-    else
+    while (1)
     {
-        // When inserting the first element in the queue, set the value of Front to 0.
-        if (b->front == -1)
-            b->front = 0;
+        // Check whether the queue is already full
+        if (b->rear == b->size - 1)
+            continue;
+        else
+        {
+            // When inserting the first element in the queue, set the value of Front to 0.
+            if (b->front == -1)
+                b->front = 0;
 
-        b->rear = b->rear + 1;
-        b->buffer[b->rear] = (char *)malloc(strlen(article) + 1);
-        strcpy(b->buffer[b->rear], article);
+            b->rear = b->rear + 1;
+            b->buffer[b->rear] = (char *)malloc(strlen(article) + 1);
+            if (b->buffer[b->rear] == NULL)
+            {
+                perror("Memory allocation failed");
+                exit(1);
+            }
+            strcpy(b->buffer[b->rear], article);
+            break;
+        }
     }
 
     pthread_mutex_unlock(&b->mutex); // Release the mutex lock
@@ -84,12 +92,19 @@ char *removeFromBoundedBuffer(BoundedBuffer *b)
     }
     else
     {
-        a = b->buffer[0];
-        for (int i = 1; i <= b->rear; i++)
+        if (b->buffer == NULL)
         {
-            b->buffer[i - 1] = b->buffer[i];
+            a = NULL;
         }
-        b->rear--;
+        else
+        {
+            a = b->buffer[0];
+            for (int i = 1; i <= b->rear; i++)
+            {
+                b->buffer[i - 1] = b->buffer[i];
+            }
+            b->rear--;
+        }
     }
     pthread_mutex_unlock(&b->mutex); // Release the mutex lock
     sem_post(&b->empty_count);       // Increment empty_count semaphore
@@ -133,7 +148,7 @@ LinkedList *createLinkedList()
 }
 
 // Constructor: create a new unbounded buffer.
-char *initUnboundedBuffer(UnboundedBuffer *b, int size)
+void initUnboundedBuffer(UnboundedBuffer *b, int size)
 {
     b->buffer = createLinkedList();
     pthread_mutex_init(&b->mutex, NULL);
@@ -155,6 +170,7 @@ void addEnd(UnboundedBuffer *b, char *data)
     if (newNode == NULL)
     {
         perror("Memory allocation failed");
+        pthread_mutex_unlock(&b->mutex); // Release the mutex lock
         return;
     }
 
@@ -187,12 +203,13 @@ char *removeFront(UnboundedBuffer *b)
 
     if (isEmpty(b->buffer))
     {
+        pthread_mutex_unlock(&b->mutex); // Release the mutex lock
         return NULL;
     }
 
     Node *temp = b->buffer->head;
-    b->buffer->head = b->buffer->head->next;
     char *article = temp->data;
+    b->buffer->head = b->buffer->head->next;
     free(temp);
     b->buffer->size--;
 
@@ -264,7 +281,6 @@ void *thread_function_Producer(void *arg)
         sprintf(countString, "%d", countOptionByType[randomIndex]);
         strcat(article, countString);
 
-        // printf("%s\n", article);
         insertToBoundedBuffer(queue, article);
     }
 
@@ -325,9 +341,6 @@ void *thread_function_Dispatcher(void *arg)
                 // Remove the queue
                 free(queuesOfArticals[i].buffer);
                 queuesOfArticals[i].size = 0;
-
-                // Remove the DONE article from the queue
-                removeFromBoundedBuffer(&queuesOfArticals[i]);
             }
         }
     }
@@ -356,21 +369,20 @@ void *thread_function_Co_Editor(void *arg)
     {
         article = removeFront(queue);
 
-        if (article == NULL) {
+        if (article == NULL)
+        {
             continue;
         }
-
-        // Check if the article isn't DONE
-        if (strstr(article, "DONE") == NULL)
+        else if (strstr(article, "DONE") != NULL)
         {
-            sleep(0.1); // For editing
+            // Check if the article is DONE
             insertToBoundedBuffer(&screenManagerQueue, article);
-        } else {
             break;
         }
-    } while (1);
 
-    insertToBoundedBuffer(&screenManagerQueue, article);
+        sleep(0.1); // For editing
+        insertToBoundedBuffer(&screenManagerQueue, article);
+    } while (1);
 }
 
 void *thread_function_Screen_manager(void *arg)
@@ -385,10 +397,9 @@ void *thread_function_Screen_manager(void *arg)
         {
             continue;
         }
-
-        // Check if the article is DONE
-        if (strstr(article, "DONE") != NULL)
+        else if (strstr(article, "DONE") != NULL)
         {
+            // Check if the article is DONE
             count++;
             continue;
         }
@@ -397,6 +408,16 @@ void *thread_function_Screen_manager(void *arg)
     }
 
     printf("DONE\n");
+}
+
+void freeAllBoundedBuffer()
+{
+    for (int i = 0; i < queuesOfArticals->size; i++)
+    {
+        free(queuesOfArticals[i].buffer);
+    }
+
+    free(queuesOfArticals);
 }
 
 int main(int argc, char *argv[])
@@ -447,7 +468,6 @@ int main(int argc, char *argv[])
         {
             capacity = capacity == 0 ? 1 : capacity * 2;
             Producer *new_producers = (Producer *)calloc(capacity, sizeof(Producer));
-
             if (new_producers == NULL)
             {
                 perror("Memory allocation failed");
@@ -524,11 +544,11 @@ int main(int argc, char *argv[])
         exit(1);
     }
 
-    // if (pthread_join(thread_sports_id, NULL) != 0)
-    // {
-    //     fprintf(stderr, "Failed to join thread\n");
-    //     return 1;
-    // }
+   if (pthread_join(thread_sports_id, NULL) != 0)
+    {
+        fprintf(stderr, "Failed to join thread\n");
+        return 1;
+    }
 
     pthread_t thread_news_id;
     CoEditorThreadArgs coEditorNewsThreadArgs;
@@ -540,11 +560,11 @@ int main(int argc, char *argv[])
         exit(1);
     }
 
-    // if (pthread_join(thread_news_id, NULL) != 0)
-    // {
-    //     fprintf(stderr, "Failed to join thread\n");
-    //     return 1;
-    // }
+    if (pthread_join(thread_news_id, NULL) != 0)
+    {
+        fprintf(stderr, "Failed to join thread\n");
+        return 1;
+    }
 
     pthread_t thread_weather_id;
     CoEditorThreadArgs coEditorWeatherThreadArgs;
@@ -556,35 +576,35 @@ int main(int argc, char *argv[])
         exit(1);
     }
 
-    // if (pthread_join(thread_weather_id, NULL) != 0)
-    // {
-    //     fprintf(stderr, "Failed to join thread\n");
-    //     return 1;
-    // }
-
-    // printf("SCREEN MANAGER:\n");
-
-    pthread_t thread_screen_manager_id;
-    result = pthread_create(&thread_screen_manager_id, NULL, thread_function_Screen_manager, NULL);
-    if (result != 0)
-    {
-        printf("pthread_create failed. Error code: %d\n", result);
-        exit(1);
-    }
-
-    if (pthread_join(thread_screen_manager_id, NULL) != 0)
+     if (pthread_join(thread_weather_id, NULL) != 0)
     {
         fprintf(stderr, "Failed to join thread\n");
         return 1;
     }
 
+    pthread_t thread_screen_manager_id;
+    thread_function_Screen_manager(NULL);
+    // result = pthread_create(&thread_screen_manager_id, NULL, thread_function_Screen_manager, NULL);
+    // if (result != 0)
+    // {
+    //     printf("pthread_create failed. Error code: %d\n", result);
+    //     exit(1);
+    // }
+
+    // if (pthread_join(thread_screen_manager_id, NULL) != 0)
+    // {
+    //     fprintf(stderr, "Failed to join thread\n");
+    //     return 1;
+    // }
+
     free(producers);
-    free(queuesOfArticals);
+    freeAllBoundedBuffer();
+
+    destroyLinkedList(sportsQueue.buffer);
+    destroyLinkedList(newsQueue.buffer);
+    destroyLinkedList(weatherQueue.buffer);
 
     // TODO: create function that free all the elements and call it when the malloc is failed.
 
-    // call to destroy linked list
-
-    
     return 0;
 }
