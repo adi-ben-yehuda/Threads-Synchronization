@@ -30,12 +30,6 @@ typedef struct
     sem_t full_count;      // Semaphore for filled slots in the buffer
 } BoundedBuffer;
 
-// Global variables
-BoundedBuffer *queuesOfArticals;
-BoundedBuffer sportsQueue;
-BoundedBuffer newsQueue;
-BoundedBuffer weatherQueue;
-
 // Constructor: create a new bounded buffer with size places to store objects.
 char *initBoundedBuffer(BoundedBuffer *b, int size)
 {
@@ -54,7 +48,7 @@ char *initBoundedBuffer(BoundedBuffer *b, int size)
 }
 
 // Insert a new object into the bounded buffer.
-void insertArticle(BoundedBuffer *b, char *article)
+void insertToBoundedBuffer(BoundedBuffer *b, char *article)
 {
     sem_wait(&b->empty_count);     // Decrement empty_count semaphore
     pthread_mutex_lock(&b->mutex); // Acquire the mutex lock
@@ -78,10 +72,9 @@ void insertArticle(BoundedBuffer *b, char *article)
 }
 
 // Remove the first object from the bounded buffer and return it to the user
-char *removeArticle(BoundedBuffer *b)
+char *removeFromBoundedBuffer(BoundedBuffer *b)
 {
     pthread_mutex_lock(&b->mutex); // Acquire the mutex lock
-
     char *a;
 
     // Check whether the queue is already empty
@@ -103,6 +96,130 @@ char *removeArticle(BoundedBuffer *b)
 
     return a;
 }
+
+typedef struct Node
+{
+    char *data;
+    struct Node *next;
+} Node;
+
+typedef struct
+{
+    Node *head;
+    int size;
+} LinkedList;
+
+// For the Dispatcher
+typedef struct
+{
+    LinkedList *buffer;    // Buffer linked list to store articles
+    pthread_mutex_t mutex; // Mutex for buffer access
+    sem_t full_count;      // Semaphore for filled slots in the buffer
+} UnboundedBuffer;
+
+// Function to create an empty linked list
+LinkedList *createLinkedList()
+{
+    LinkedList *list = malloc(sizeof(LinkedList));
+    if (list == NULL)
+    {
+        perror("Memory allocation failed");
+        return NULL;
+    }
+
+    list->head = NULL;
+    list->size = 0;
+    return list;
+}
+
+// Constructor: create a new unbounded buffer.
+char *initUnboundedBuffer(UnboundedBuffer *b, int size)
+{
+    b->buffer = createLinkedList();
+    pthread_mutex_init(&b->mutex, NULL);
+    sem_init(&b->full_count, 0, 0); // Initialize full_count semaphore to 0
+}
+
+// Function to check if the linked list is empty
+int isEmpty(LinkedList *list)
+{
+    return list->head == NULL;
+}
+
+// Function to add an element to the end of the linked list
+void addEnd(UnboundedBuffer *b, char *data)
+{
+    pthread_mutex_lock(&b->mutex); // Acquire the mutex lock
+
+    Node *newNode = malloc(sizeof(Node));
+    if (newNode == NULL)
+    {
+        perror("Memory allocation failed");
+        return;
+    }
+
+    newNode->data = strdup(data);
+    newNode->next = NULL;
+
+    if (isEmpty(b->buffer))
+    {
+        b->buffer->head = newNode;
+    }
+    else
+    {
+        Node *current = b->buffer->head;
+        while (current->next != NULL)
+        {
+            current = current->next;
+        }
+        current->next = newNode;
+    }
+
+    b->buffer->size++;
+    pthread_mutex_unlock(&b->mutex); // Release the mutex lock
+    sem_post(&b->full_count);        // Increment full_count semaphore
+}
+
+// Function to remove the first element from the linked list
+char *removeFront(UnboundedBuffer *b)
+{
+    pthread_mutex_lock(&b->mutex); // Acquire the mutex lock
+
+    if (isEmpty(b->buffer))
+    {
+        return NULL;
+    }
+
+    Node *temp = b->buffer->head;
+    b->buffer->head = b->buffer->head->next;
+    char *article = temp->data;
+    free(temp);
+    b->buffer->size--;
+
+    pthread_mutex_unlock(&b->mutex); // Release the mutex lock
+
+    return article;
+}
+
+// Function to free the memory allocated for the linked list
+void destroyLinkedList(LinkedList *list)
+{
+    Node *current = list->head;
+    while (current != NULL)
+    {
+        Node *temp = current;
+        current = current->next;
+        free(temp);
+    }
+    free(list);
+}
+
+// Global variables
+BoundedBuffer *queuesOfArticals;
+UnboundedBuffer sportsQueue;
+UnboundedBuffer newsQueue;
+UnboundedBuffer weatherQueue;
+BoundedBuffer screenManagerQueue;
 
 // Define a structure to hold the arguments
 typedef struct
@@ -147,12 +264,12 @@ void *thread_function_Producer(void *arg)
         sprintf(countString, "%d", countOptionByType[randomIndex]);
         strcat(article, countString);
 
-        printf("%s\n", article);
-        insertArticle(queue, article);
+        // printf("%s\n", article);
+        insertToBoundedBuffer(queue, article);
     }
 
     char article[] = "DONE";
-    insertArticle(queue, article);
+    insertToBoundedBuffer(queue, article);
 
     return NULL;
 }
@@ -180,7 +297,7 @@ void *thread_function_Dispatcher(void *arg)
                 continue;
             }
 
-            char *article = removeArticle(&queuesOfArticals[i]);
+            char *article = removeFromBoundedBuffer(&queuesOfArticals[i]);
             // Check if the queue was empty
             if (article == NULL)
             {
@@ -190,16 +307,15 @@ void *thread_function_Dispatcher(void *arg)
             // Check if word is present in the string
             if (strstr(article, "SPORTS") != NULL)
             {
-                // Add the article to the queue
-                insertArticle(&sportsQueue, article);
+                addEnd(&sportsQueue, article);
             }
             else if (strstr(article, "NEWS") != NULL)
             {
-                insertArticle(&newsQueue, article);
+                addEnd(&newsQueue, article);
             }
             else if (strstr(article, "WEATHER") != NULL)
             {
-                insertArticle(&weatherQueue, article);
+                addEnd(&weatherQueue, article);
             }
             else if (strstr(article, "DONE") != NULL)
             {
@@ -211,14 +327,14 @@ void *thread_function_Dispatcher(void *arg)
                 queuesOfArticals[i].size = 0;
 
                 // Remove the DONE article from the queue
-                removeArticle(&queuesOfArticals[i]);
+                removeFromBoundedBuffer(&queuesOfArticals[i]);
             }
         }
     }
 
-    insertArticle(&sportsQueue, "DONE");
-    insertArticle(&newsQueue, "DONE");
-    insertArticle(&weatherQueue, "DONE");
+    addEnd(&sportsQueue, "DONE");
+    addEnd(&newsQueue, "DONE");
+    addEnd(&weatherQueue, "DONE");
 
     return NULL;
 }
@@ -226,28 +342,61 @@ void *thread_function_Dispatcher(void *arg)
 // Define a structure to hold the arguments
 typedef struct
 {
-    BoundedBuffer *queue;
+    UnboundedBuffer *queue;
 } CoEditorThreadArgs;
 
 void *thread_function_Co_Editor(void *arg)
 {
     CoEditorThreadArgs *args = (CoEditorThreadArgs *)arg;
-    BoundedBuffer *queue = args->queue;
+    UnboundedBuffer *queue = args->queue;
 
-    char *article = removeArticle(&queue);
+    char *article;
 
-    while (strstr(article, "DONE") == NULL)
+    do
     {
-        
-    }
-    
+        article = removeFront(queue);
 
+        if (article == NULL) {
+            continue;
+        }
+
+        // Check if the article isn't DONE
+        if (strstr(article, "DONE") == NULL)
+        {
+            sleep(0.1); // For editing
+            insertToBoundedBuffer(&screenManagerQueue, article);
+        } else {
+            break;
+        }
+    } while (1);
+
+    insertToBoundedBuffer(&screenManagerQueue, article);
 }
 
 void *thread_function_Screen_manager(void *arg)
 {
-    // Thread code goes here
-    return NULL;
+    int count = 0;
+
+    while (count != 3)
+    {
+        char *article = removeFromBoundedBuffer(&screenManagerQueue);
+
+        if (article == NULL)
+        {
+            continue;
+        }
+
+        // Check if the article is DONE
+        if (strstr(article, "DONE") != NULL)
+        {
+            count++;
+            continue;
+        }
+
+        printf("%s\n", article);
+    }
+
+    printf("DONE\n");
 }
 
 int main(int argc, char *argv[])
@@ -260,7 +409,7 @@ int main(int argc, char *argv[])
     // char *configPath = argv[1];
     char *configPath = "conf.txt";
 
-    int numProducers = 0, capacity = 0, CoEditorSize = 0;
+    int numProducers = 0, capacity = 0, CoEditorSize = 0, result = 0;
     Producer *producers = NULL;
 
     FILE *configFile = fopen(configPath, "r"); // Open the file in read mode
@@ -321,6 +470,8 @@ int main(int argc, char *argv[])
         numProducers++;
     }
 
+    fclose(configFile); // Close the file
+
     // Create an array of queue in the size of producers number with malloc
     queuesOfArticals = (BoundedBuffer *)calloc(numProducers, sizeof(BoundedBuffer));
     if (queuesOfArticals == NULL)
@@ -331,11 +482,8 @@ int main(int argc, char *argv[])
 
     for (int i = 0; i < numProducers; i++)
     {
-        pthread_t thread_producer_id;
-
-        // BoundedBuffer queueOfArticals;
         initBoundedBuffer(&(queuesOfArticals[i]), producers[i].queueSize + 1);
-
+        pthread_t thread_producer_id;
         ProducerThreadArgs args;
         args.producer = producers[i];
         args.queue = &(queuesOfArticals[i]);
@@ -349,38 +497,94 @@ int main(int argc, char *argv[])
     }
 
     // Create 3 queues for each type
-    initBoundedBuffer(&sportsQueue, CoEditorSize);
-    initBoundedBuffer(&newsQueue, CoEditorSize);
-    initBoundedBuffer(&weatherQueue, CoEditorSize);
+    initUnboundedBuffer(&sportsQueue, CoEditorSize);
+    initUnboundedBuffer(&newsQueue, CoEditorSize);
+    initUnboundedBuffer(&weatherQueue, CoEditorSize);
 
     pthread_t thread_dispatcher_id;
     DispatcherThreadArgs dispatcherThreadArgs;
     dispatcherThreadArgs.numProducers = numProducers;
 
-    int result = pthread_create(&thread_dispatcher_id, NULL, thread_function_Dispatcher, (void *)&dispatcherThreadArgs);
+    result = pthread_create(&thread_dispatcher_id, NULL, thread_function_Dispatcher, (void *)&dispatcherThreadArgs);
     if (result != 0)
     {
         printf("pthread_create failed. Error code: %d\n", result);
         exit(1);
     }
 
-    pthread_t thread_sport_id;
-    CoEditorThreadArgs coEditorThreadArgs;
-    coEditorThreadArgs.queue = &sportsQueue;
+    initBoundedBuffer(&screenManagerQueue, CoEditorSize);
 
-    int result = pthread_create(&thread_sport_id, NULL, thread_function_Co_Editor, (void *)&coEditorThreadArgs);
+    pthread_t thread_sports_id;
+    CoEditorThreadArgs coEditorSportsThreadArgs;
+    coEditorSportsThreadArgs.queue = &sportsQueue;
+    result = pthread_create(&thread_sports_id, NULL, thread_function_Co_Editor, (void *)&coEditorSportsThreadArgs);
     if (result != 0)
     {
         printf("pthread_create failed. Error code: %d\n", result);
         exit(1);
     }
-    
+
+    // if (pthread_join(thread_sports_id, NULL) != 0)
+    // {
+    //     fprintf(stderr, "Failed to join thread\n");
+    //     return 1;
+    // }
+
+    pthread_t thread_news_id;
+    CoEditorThreadArgs coEditorNewsThreadArgs;
+    coEditorNewsThreadArgs.queue = &newsQueue;
+    result = pthread_create(&thread_news_id, NULL, thread_function_Co_Editor, (void *)&coEditorNewsThreadArgs);
+    if (result != 0)
+    {
+        printf("pthread_create failed. Error code: %d\n", result);
+        exit(1);
+    }
+
+    // if (pthread_join(thread_news_id, NULL) != 0)
+    // {
+    //     fprintf(stderr, "Failed to join thread\n");
+    //     return 1;
+    // }
+
+    pthread_t thread_weather_id;
+    CoEditorThreadArgs coEditorWeatherThreadArgs;
+    coEditorWeatherThreadArgs.queue = &weatherQueue;
+    result = pthread_create(&thread_weather_id, NULL, thread_function_Co_Editor, (void *)&coEditorWeatherThreadArgs);
+    if (result != 0)
+    {
+        printf("pthread_create failed. Error code: %d\n", result);
+        exit(1);
+    }
+
+    // if (pthread_join(thread_weather_id, NULL) != 0)
+    // {
+    //     fprintf(stderr, "Failed to join thread\n");
+    //     return 1;
+    // }
+
+    // printf("SCREEN MANAGER:\n");
+
+    pthread_t thread_screen_manager_id;
+    result = pthread_create(&thread_screen_manager_id, NULL, thread_function_Screen_manager, NULL);
+    if (result != 0)
+    {
+        printf("pthread_create failed. Error code: %d\n", result);
+        exit(1);
+    }
+
+    if (pthread_join(thread_screen_manager_id, NULL) != 0)
+    {
+        fprintf(stderr, "Failed to join thread\n");
+        return 1;
+    }
 
     free(producers);
     free(queuesOfArticals);
 
     // TODO: create function that free all the elements and call it when the malloc is failed.
 
-    fclose(configFile); // Close the file
+    // call to destroy linked list
+
+    
     return 0;
 }
