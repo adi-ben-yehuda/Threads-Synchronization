@@ -49,15 +49,15 @@ void initBoundedBuffer(BoundedBuffer *b, int size)
 // Insert a new object into the bounded buffer.
 void insertToBoundedBuffer(BoundedBuffer *b, char *article)
 {
-    sem_wait(&b->empty_count);     // Decrement empty_count semaphore
-    pthread_mutex_lock(&b->mutex); // Acquire the mutex lock
+    bool insert = false;
 
-    while (1)
+    while (insert == false)
     {
-        // Check whether the queue is already full
-        if (b->rear == b->size - 1)
-            continue;
-        else
+        sem_wait(&b->empty_count);     // Decrement empty_count semaphore
+        pthread_mutex_lock(&b->mutex); // Acquire the mutex lock
+
+        // Check whether the queue isn't full
+        if (b->rear < b->size - 1)
         {
             // When inserting the first element in the queue, set the value of Front to 0.
             if (b->front == -1)
@@ -68,15 +68,17 @@ void insertToBoundedBuffer(BoundedBuffer *b, char *article)
             if (b->buffer[b->rear] == NULL)
             {
                 perror("Memory allocation failed");
+                pthread_mutex_unlock(&b->mutex); // Release the mutex lock
+                sem_post(&b->full_count);        // Increment full_count semaphore
                 exit(1);
             }
             strcpy(b->buffer[b->rear], article);
-            break;
+            insert = true;
         }
-    }
 
-    pthread_mutex_unlock(&b->mutex); // Release the mutex lock
-    sem_post(&b->full_count);        // Increment full_count semaphore
+        pthread_mutex_unlock(&b->mutex); // Release the mutex lock
+        sem_post(&b->full_count);        // Increment full_count semaphore
+    }
 }
 
 // Remove the first object from the bounded buffer and return it to the user
@@ -92,6 +94,7 @@ char *removeFromBoundedBuffer(BoundedBuffer *b)
     }
     else
     {
+        // Check whether the array is already empty
         if (b->buffer == NULL)
         {
             a = NULL;
@@ -106,6 +109,7 @@ char *removeFromBoundedBuffer(BoundedBuffer *b)
             b->rear--;
         }
     }
+
     pthread_mutex_unlock(&b->mutex); // Release the mutex lock
     sem_post(&b->empty_count);       // Increment empty_count semaphore
 
@@ -155,29 +159,22 @@ void initUnboundedBuffer(UnboundedBuffer *b, int size)
     sem_init(&b->full_count, 0, 0); // Initialize full_count semaphore to 0
 }
 
-// Function to check if the linked list is empty
-int isEmpty(LinkedList *list)
-{
-    return list->head == NULL;
-}
-
 // Function to add an element to the end of the linked list
 void addEnd(UnboundedBuffer *b, char *data)
 {
-    pthread_mutex_lock(&b->mutex); // Acquire the mutex lock
-
     Node *newNode = malloc(sizeof(Node));
     if (newNode == NULL)
     {
         perror("Memory allocation failed");
-        pthread_mutex_unlock(&b->mutex); // Release the mutex lock
         return;
     }
-
     newNode->data = strdup(data);
     newNode->next = NULL;
 
-    if (isEmpty(b->buffer))
+    pthread_mutex_lock(&b->mutex); // Acquire the mutex lock
+
+    // Check if the linked list is empty
+    if (b->buffer->head == NULL)
     {
         b->buffer->head = newNode;
     }
@@ -201,7 +198,8 @@ char *removeFront(UnboundedBuffer *b)
 {
     pthread_mutex_lock(&b->mutex); // Acquire the mutex lock
 
-    if (isEmpty(b->buffer))
+    // Check if the linked list is empty
+    if (b->buffer->head == NULL)
     {
         pthread_mutex_unlock(&b->mutex); // Release the mutex lock
         return NULL;
@@ -286,6 +284,8 @@ void *thread_function_Producer(void *arg)
 
     char article[] = "DONE";
     insertToBoundedBuffer(queue, article);
+
+    free(arg); // Free the dynamically allocated memory
 
     return NULL;
 }
@@ -380,7 +380,7 @@ void *thread_function_Co_Editor(void *arg)
             break;
         }
 
-        sleep(0.1); // For editing
+        usleep(100000); // 0.1 seconds for editing
         insertToBoundedBuffer(&screenManagerQueue, article);
     } while (1);
 }
@@ -444,7 +444,7 @@ int main(int argc, char *argv[])
     while (fgets(line, sizeof(line), configFile) != NULL)
     {
         Producer p;
-        p.id = atoi(line);
+        p.id = atoi(line) - 1;
 
         if (fgets(line, sizeof(line), configFile) != NULL)
         {
@@ -504,11 +504,17 @@ int main(int argc, char *argv[])
     {
         initBoundedBuffer(&(queuesOfArticals[i]), producers[i].queueSize + 1);
         pthread_t thread_producer_id;
-        ProducerThreadArgs args;
-        args.producer = producers[i];
-        args.queue = &(queuesOfArticals[i]);
 
-        int result = pthread_create(&thread_producer_id, NULL, thread_function_Producer, (void *)&args);
+        ProducerThreadArgs *args = malloc(sizeof(ProducerThreadArgs));
+        if (args == NULL)
+        {
+            fprintf(stderr, "Failed to allocate memory for queuesOfArticals\n");
+            exit(1);
+        }
+        args->producer = producers[i];
+        args->queue = &(queuesOfArticals[i]);
+
+        int result = pthread_create(&thread_producer_id, NULL, thread_function_Producer, (void *)args);
         if (result != 0)
         {
             printf("pthread_create failed. Error code: %d\n", result);
@@ -544,11 +550,11 @@ int main(int argc, char *argv[])
         exit(1);
     }
 
-   if (pthread_join(thread_sports_id, NULL) != 0)
-    {
-        fprintf(stderr, "Failed to join thread\n");
-        return 1;
-    }
+    // if (pthread_join(thread_sports_id, NULL) != 0)
+    // {
+    //     fprintf(stderr, "Failed to join thread\n");
+    //     return 1;
+    // }
 
     pthread_t thread_news_id;
     CoEditorThreadArgs coEditorNewsThreadArgs;
@@ -560,11 +566,11 @@ int main(int argc, char *argv[])
         exit(1);
     }
 
-    if (pthread_join(thread_news_id, NULL) != 0)
-    {
-        fprintf(stderr, "Failed to join thread\n");
-        return 1;
-    }
+    // if (pthread_join(thread_news_id, NULL) != 0)
+    // {
+    //     fprintf(stderr, "Failed to join thread\n");
+    //     return 1;
+    // }
 
     pthread_t thread_weather_id;
     CoEditorThreadArgs coEditorWeatherThreadArgs;
@@ -576,26 +582,26 @@ int main(int argc, char *argv[])
         exit(1);
     }
 
-     if (pthread_join(thread_weather_id, NULL) != 0)
-    {
-        fprintf(stderr, "Failed to join thread\n");
-        return 1;
-    }
-
-    pthread_t thread_screen_manager_id;
-    thread_function_Screen_manager(NULL);
-    // result = pthread_create(&thread_screen_manager_id, NULL, thread_function_Screen_manager, NULL);
-    // if (result != 0)
-    // {
-    //     printf("pthread_create failed. Error code: %d\n", result);
-    //     exit(1);
-    // }
-
-    // if (pthread_join(thread_screen_manager_id, NULL) != 0)
+    // if (pthread_join(thread_weather_id, NULL) != 0)
     // {
     //     fprintf(stderr, "Failed to join thread\n");
     //     return 1;
     // }
+
+    pthread_t thread_screen_manager_id;
+    // thread_function_Screen_manager(NULL);
+    result = pthread_create(&thread_screen_manager_id, NULL, thread_function_Screen_manager, NULL);
+    if (result != 0)
+    {
+        printf("pthread_create failed. Error code: %d\n", result);
+        exit(1);
+    }
+
+    if (pthread_join(thread_screen_manager_id, NULL) != 0)
+    {
+        fprintf(stderr, "Failed to join thread\n");
+        return 1;
+    }
 
     free(producers);
     freeAllBoundedBuffer();
