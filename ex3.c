@@ -349,6 +349,8 @@ void *thread_function_Dispatcher(void *arg)
     addEnd(&newsQueue, "DONE");
     addEnd(&weatherQueue, "DONE");
 
+    free(args);
+
     return NULL;
 }
 
@@ -383,6 +385,8 @@ void *thread_function_Co_Editor(void *arg)
         usleep(100000); // 0.1 seconds for editing
         insertToBoundedBuffer(&screenManagerQueue, article);
     } while (1);
+
+    return NULL;
 }
 
 void *thread_function_Screen_manager(void *arg)
@@ -458,6 +462,10 @@ int main(int argc, char *argv[])
 
         if (fgets(line, sizeof(line), configFile) != NULL)
         {
+            if (atoi(line) <= 0) {
+                printf("The configuration file isn't valid\n");
+                exit(1);
+            }
             p.queueSize = atoi(line);
         }
 
@@ -528,10 +536,15 @@ int main(int argc, char *argv[])
     initUnboundedBuffer(&weatherQueue, CoEditorSize);
 
     pthread_t thread_dispatcher_id;
-    DispatcherThreadArgs dispatcherThreadArgs;
-    dispatcherThreadArgs.numProducers = numProducers;
+    DispatcherThreadArgs *dispatcherThreadArgs = (DispatcherThreadArgs *)malloc(sizeof(DispatcherThreadArgs));
+    if (dispatcherThreadArgs == NULL)
+    {
+        fprintf(stderr, "Failed to allocate memory for queuesOfArticals\n");
+        exit(1);
+    }
+    dispatcherThreadArgs->numProducers = numProducers;
 
-    result = pthread_create(&thread_dispatcher_id, NULL, thread_function_Dispatcher, (void *)&dispatcherThreadArgs);
+    result = pthread_create(&thread_dispatcher_id, NULL, thread_function_Dispatcher, (void *)dispatcherThreadArgs);
     if (result != 0)
     {
         printf("pthread_create failed. Error code: %d\n", result);
@@ -550,12 +563,6 @@ int main(int argc, char *argv[])
         exit(1);
     }
 
-    // if (pthread_join(thread_sports_id, NULL) != 0)
-    // {
-    //     fprintf(stderr, "Failed to join thread\n");
-    //     return 1;
-    // }
-
     pthread_t thread_news_id;
     CoEditorThreadArgs coEditorNewsThreadArgs;
     coEditorNewsThreadArgs.queue = &newsQueue;
@@ -565,12 +572,6 @@ int main(int argc, char *argv[])
         printf("pthread_create failed. Error code: %d\n", result);
         exit(1);
     }
-
-    // if (pthread_join(thread_news_id, NULL) != 0)
-    // {
-    //     fprintf(stderr, "Failed to join thread\n");
-    //     return 1;
-    // }
 
     pthread_t thread_weather_id;
     CoEditorThreadArgs coEditorWeatherThreadArgs;
@@ -582,14 +583,7 @@ int main(int argc, char *argv[])
         exit(1);
     }
 
-    // if (pthread_join(thread_weather_id, NULL) != 0)
-    // {
-    //     fprintf(stderr, "Failed to join thread\n");
-    //     return 1;
-    // }
-
     pthread_t thread_screen_manager_id;
-    // thread_function_Screen_manager(NULL);
     result = pthread_create(&thread_screen_manager_id, NULL, thread_function_Screen_manager, NULL);
     if (result != 0)
     {
