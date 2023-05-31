@@ -342,6 +342,8 @@ void *thread_function_Dispatcher(void *arg)
                 free(queuesOfArticals[i].buffer);
                 queuesOfArticals[i].size = 0;
             }
+
+            free(article);
         }
     }
 
@@ -379,11 +381,15 @@ void *thread_function_Co_Editor(void *arg)
         {
             // Check if the article is DONE
             insertToBoundedBuffer(&screenManagerQueue, article);
+            free(article);
+
             break;
         }
 
         usleep(100000); // 0.1 seconds for editing
         insertToBoundedBuffer(&screenManagerQueue, article);
+
+        free(article);
     } while (1);
 
     return NULL;
@@ -396,7 +402,6 @@ void *thread_function_Screen_manager(void *arg)
     while (count != 3)
     {
         char *article = removeFromBoundedBuffer(&screenManagerQueue);
-
         if (article == NULL)
         {
             continue;
@@ -409,12 +414,15 @@ void *thread_function_Screen_manager(void *arg)
         }
 
         printf("%s\n", article);
+        free(article);
     }
 
     printf("DONE\n");
+
+    return NULL;
 }
 
-void freeAllBoundedBuffer()
+void freeQueuesOfArticals()
 {
     for (int i = 0; i < queuesOfArticals->size; i++)
     {
@@ -426,13 +434,13 @@ void freeAllBoundedBuffer()
 
 int main(int argc, char *argv[])
 {
-    // if (argc < 2)
-    // {
-    //     exit(-1);
-    // }
+    if (argc < 2)
+    {
+        exit(-1);
+    }
 
-    // char *configPath = argv[1];
-    char *configPath = "conf.txt";
+    char *configPath = argv[1];
+    //char *configPath = "conf.txt";
 
     int numProducers = 0, capacity = 0, CoEditorSize = 0, result = 0;
     Producer *producers = NULL;
@@ -598,13 +606,13 @@ int main(int argc, char *argv[])
     }
 
     free(producers);
-    freeAllBoundedBuffer();
+    freeQueuesOfArticals();
 
     destroyLinkedList(sportsQueue.buffer);
     destroyLinkedList(newsQueue.buffer);
     destroyLinkedList(weatherQueue.buffer);
 
-    // TODO: create function that free all the elements and call it when the malloc is failed.
+    free(screenManagerQueue.buffer);
 
     return 0;
 }
