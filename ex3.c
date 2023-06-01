@@ -41,6 +41,13 @@ void initBoundedBuffer(BoundedBuffer *b, int size)
     {
         perror("Memory allocation failed.\n");
     }
+    else
+    {
+        for (int i = 0; i < size; i++)
+        {
+            b->buffer[i] = NULL; // Initialize buffer elements to NULL
+        }
+    }
     pthread_mutex_init(&b->mutex, NULL);
     sem_init(&b->empty_count, 0, size); // Initialize empty_count semaphore to size
     sem_init(&b->full_count, 0, 0);     // Initialize full_count semaphore to 0
@@ -224,6 +231,7 @@ void destroyLinkedList(LinkedList *list)
     {
         Node *temp = current;
         current = current->next;
+        free(temp->data);
         free(temp);
     }
     free(list);
@@ -440,7 +448,6 @@ int main(int argc, char *argv[])
     }
 
     char *configPath = argv[1];
-    //char *configPath = "conf.txt";
 
     int numProducers = 0, capacity = 0, CoEditorSize = 0, result = 0;
     Producer *producers = NULL;
@@ -470,8 +477,9 @@ int main(int argc, char *argv[])
 
         if (fgets(line, sizeof(line), configFile) != NULL)
         {
-            if (atoi(line) <= 0) {
-                printf("The configuration file isn't valid\n");
+            if (atoi(line) <= 0)
+            {
+                printf("The configuration file is invalid\n");
                 exit(1);
             }
             p.queueSize = atoi(line);
@@ -524,7 +532,7 @@ int main(int argc, char *argv[])
         ProducerThreadArgs *args = malloc(sizeof(ProducerThreadArgs));
         if (args == NULL)
         {
-            fprintf(stderr, "Failed to allocate memory for queuesOfArticals\n");
+            fprintf(stderr, "Failed to allocate memory for ProducerThreadArgs\n");
             exit(1);
         }
         args->producer = producers[i];
