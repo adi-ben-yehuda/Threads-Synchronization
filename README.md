@@ -12,7 +12,7 @@ The overall scenario we are simulating is that of news broadcasting. Different t
 In this assignment, the ‘new stories’ are simulated by simple strings which should be displayed on the screen in the order they arrive.
 In the scenario, there are 4 types of active actors: 
 
-- Producer
+- <u> Producer: </u>
 Each producer creates some strings in the following format: "producer i type j"  where ‘i’ is the producer's ID, ‘type' is a random type it chooses which can be ‘SPORTS’, ‘NEWS’, 'WEATHER’, and ‘j’ is the number of strings of type ‘type’ this producer has already produced. Each of the producers passes its information to the Dispatcher via its private queue. Each of the Producer's private queue is shared between the Producer and the Dispatcher. Each of the string products is inserted by the Producer into its ‘producers queue’. After inserting all the products, the Producer sends a ‘DONE’ string through its Producer queue.
 
 For example,
