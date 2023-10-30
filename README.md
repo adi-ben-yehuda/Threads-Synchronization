@@ -1,4 +1,4 @@
-# operating_ex3
+# Threads Synchronization
 
 ## Introduction
 The purpose of this project is to gain experience with concurrent programming and synchronization mechanisms.
