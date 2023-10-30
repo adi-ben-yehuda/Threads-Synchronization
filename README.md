@@ -42,13 +42,11 @@ We implement a thread-safe bounded buffer using a binary semaphore (mutex) and c
 ### Configuration File 
 The Configuration file has the following format: 
 
-![image](https://github.com/adi-ben-yehuda/operating_ex3/assets/75027826/cd9c9dd7-512a-4f04-9218-a13087429ab8)
+![image](https://github.com/adi-ben-yehuda/operating_ex3/assets/75027826/12136ce1-2c97-42eb-92b1-7ebb98b96e07)
 
 For example, 
 
-![image](https://github.com/adi-ben-yehuda/operating_ex3/assets/75027826/ee142886-cee6-4a9c-b000-607f4b3e0baa)
-
-
+![image](https://github.com/adi-ben-yehuda/operating_ex3/assets/75027826/746c0d70-95ca-4b76-9976-55de3108156a)
 
 ## Installation
 Before installing this project, you need to install on your computer:
@@ -57,5 +55,8 @@ Before installing this project, you need to install on your computer:
 Then open a terminal.
 write the next command:
 ```
-
+git clone 
+make clean
+make
+./ex3.out conf.txt
 ```
