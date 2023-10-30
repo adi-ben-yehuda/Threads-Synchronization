@@ -55,7 +55,7 @@ Before installing this project, you need to install on your computer:
 Then open a terminal.
 write the next command:
 ```
-git clone 
+git clone https://github.com/adi-ben-yehuda/Threads-Synchronization.git
 make clean
 make
 ./ex3.out conf.txt
